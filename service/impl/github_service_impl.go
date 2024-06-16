@@ -11,6 +11,6 @@ func (*GithubServiceImpl) GetOpenPullRequestUrls() (pullRequestUrls []string, er
 	return nil, nil
 }
 
-func NewGithubService() service.GithubService {
-	return &GithubServiceImpl{}
+func NewGithubService() (service.GithubService, error) {
+	return &GithubServiceImpl{}, nil
 }
