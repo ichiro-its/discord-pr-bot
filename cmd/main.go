@@ -1,37 +1,20 @@
 package main
 
 import (
-	"log"
-
-	"github.com/ichiro-its/discord-pr-bot/service"
-	"github.com/ichiro-its/discord-pr-bot/service/impl"
+	"github.com/ichiro-its/discord-pr-bot/config"
+	"github.com/ichiro-its/discord-pr-bot/handler"
+	"github.com/joho/godotenv"
 )
 
 func main() {
-	discordService := impl.NewDiscordService()
-	githubService := impl.NewGithubService()
-
-	pullRequestUrls, err := githubService.GetOpenPullRequestUrls()
+	godotenv.Load()
+	cfg := config.LoadConfig()
+	bot, err := handler.NewBot(cfg)
 	if err != nil {
-		log.Fatalf("Failed to get open pull request urls: %+v", err)
+		panic(err)
 	}
-
-	if len(pullRequestUrls) == 0 {
-		updateMessage(discordService, "No open pull requests")
-		return
-	}
-
-	message := "Open pull requests:\n"
-	for _, pullRequestUrl := range pullRequestUrls {
-		message += pullRequestUrl + "\n"
-	}
-
-	updateMessage(discordService, "No open pull requests")
-}
-
-func updateMessage(discordService service.DiscordService, message string) {
-	err := discordService.UpdateMessage(message)
+	err = bot.Process()
 	if err != nil {
-		log.Fatalf("Failed to update message: %+v", err)
+		panic(err)
 	}
 }

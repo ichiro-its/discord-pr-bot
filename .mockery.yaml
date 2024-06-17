@@ -1,0 +1,8 @@
+dir: mocks/{{.InterfaceDirRelative}}
+mockname: "{{.InterfaceName}}Mock"
+filename: "{{.InterfaceName | snakecase}}_mock.go"
+all: True
+packages:
+  github.com/ichiro-its/discord-pr-bot/service:
+    config:
+      recursive: True
