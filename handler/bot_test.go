@@ -1,59 +1,91 @@
 package handler
 
 import (
+	"net/url"
 	"testing"
 	"time"
 
 	"github.com/ichiro-its/discord-pr-bot/config"
 	"github.com/ichiro-its/discord-pr-bot/constants"
+	"github.com/ichiro-its/discord-pr-bot/entity"
 	"github.com/ichiro-its/discord-pr-bot/mocks/service"
+	"github.com/shurcooL/githubv4"
 	"github.com/stretchr/testify/assert"
 )
 
 type TableTest struct {
 	name             string
-	mockGithubResult []string // Simulated result from mock GithubService
-	expectedMessage  string   // Expected message sent to DiscordService
-	mockGithubError  error    // Simulated error from mock GithubService
-	mockDiscordError error    // Simulated error from mock DiscordService
+	mockGithubResult []entity.PullRequest // Simulated result from mock GithubService
+	expectedMessage  string               // Expected message sent to DiscordService
+	mockGithubError  error                // Simulated error from mock GithubService
+	mockDiscordError error                // Simulated error from mock DiscordService
 
 }
 
 const (
 	testDiscordBotToken = "test-discord-bot-token"
-	testChannelID       = "test-channel-id"
-	testMessageID       = "test-message-id"
+	testChannelId       = "test-channel-id"
+	testMessageId       = "test-message-id"
+
+	testGithubToken = "test-github-token"
+	testGithubOrg   = "test-org"
 )
 
 func TestNewBot(t *testing.T) {
 	// Create a new Bot instance
 	bot, _ := NewBot(&config.Config{
 		DiscordBotToken:  testDiscordBotToken,
-		DiscordChannelID: testChannelID,
-		DiscordMessageID: testMessageID,
+		DiscordChannelID: testChannelId,
+		DiscordMessageID: testMessageId,
+		GithubToken:      testGithubToken,
+		GithubOrg:        testGithubOrg,
 	})
 
 	// Verify that the Bot instance is created correctly
 	assert.NotNil(t, bot)
 	assert.NotNil(t, bot.discordService)
 	assert.NotNil(t, bot.githubService)
-	assert.Equal(t, testChannelID, bot.channelID)
-	assert.Equal(t, testMessageID, bot.messageID)
+	assert.Equal(t, testChannelId, bot.channelID)
+	assert.Equal(t, testMessageId, bot.messageID)
+	assert.Equal(t, testGithubOrg, bot.githubOrg)
 }
 
 func TestBotProcess(t *testing.T) {
 	tests := []*TableTest{
 		{
 			name:             "No open pull requests",
-			mockGithubResult: []string{},
+			mockGithubResult: []entity.PullRequest{},
 			expectedMessage:  "Congratulations! No open pull requests.\n\n_Result updated at: " + time.Now().Format(constants.StandardTimeLayout) + "WIB_",
 			mockGithubError:  nil,
 			mockDiscordError: nil,
 		},
 		{
-			name:             "Open pull requests",
-			mockGithubResult: []string{"https://github.com/example/pr1", "https://github.com/example/pr2"},
-			expectedMessage:  "Open pull requests:\nhttps://github.com/example/pr1\nhttps://github.com/example/pr2\n\n_Result updated at: " + time.Now().Format(constants.StandardTimeLayout) + "WIB_",
+			name: "Open pull requests",
+			mockGithubResult: []entity.PullRequest{
+				{
+					Title: "Fix issue #123",
+					Url:   mustParseURL("https://github.com/org/repo/pull/123"),
+					Author: entity.Author{
+						Login: "mockuser",
+					},
+					Repository: entity.Repository{
+						Name: "repo",
+					},
+					CreatedAt: mustParseTime("2021-01-01 00:00:01"),
+				},
+				{
+					Title: "Add feature X",
+					Url:   mustParseURL("https://github.com/org/repo/pull/124"),
+					Author: entity.Author{
+						Login: "mockuser2",
+					},
+					Repository: entity.Repository{
+						Name: "repo2",
+					},
+					CreatedAt: mustParseTime("2021-01-01 00:00:00"),
+				},
+			},
+			expectedMessage:  "Open pull requests:\n- **repo**\n - [Fix issue #123](<https://github.com/org/repo/pull/123>) (mockuser)\n- **repo2**\n - [Add feature X](<https://github.com/org/repo/pull/124>) (mockuser2)\n\n_Result updated at: " + time.Now().Format(constants.StandardTimeLayout) + "WIB_",
 			mockGithubError:  nil,
 			mockDiscordError: nil,
 		},
@@ -66,7 +98,7 @@ func TestBotProcess(t *testing.T) {
 		},
 		{
 			name:             "Error updating message",
-			mockGithubResult: []string{},
+			mockGithubResult: []entity.PullRequest{},
 			expectedMessage:  "Congratulations! No open pull requests.\n\n_Result updated at: " + time.Now().Format(constants.StandardTimeLayout) + "WIB_",
 			mockGithubError:  nil,
 			mockDiscordError: assert.AnError,
@@ -79,25 +111,26 @@ func TestBotProcess(t *testing.T) {
 			// Mock GithubService
 			mockGithubService := &service.GithubServiceMock{}
 			if tt.mockGithubError != nil {
-				mockGithubService.On("GetOpenPullRequestUrls").Return(tt.mockGithubResult, tt.mockGithubError).Once()
+				mockGithubService.On("GetOpenPullRequests", testGithubOrg).Return(tt.mockGithubResult, tt.mockGithubError).Once()
 			} else {
-				mockGithubService.On("GetOpenPullRequestUrls").Return(tt.mockGithubResult, tt.mockGithubError)
+				mockGithubService.On("GetOpenPullRequests", testGithubOrg).Return(tt.mockGithubResult, tt.mockGithubError)
 			}
 
 			// Mock DiscordService
 			mockDiscordService := &service.DiscordServiceMock{}
 			if tt.mockDiscordError != nil {
-				mockDiscordService.On("UpdateMessage", testChannelID, testMessageID, tt.expectedMessage).Return(tt.mockDiscordError).Once()
+				mockDiscordService.On("UpdateMessage", testChannelId, testMessageId, tt.expectedMessage).Return(tt.mockDiscordError).Once()
 			} else {
-				mockDiscordService.On("UpdateMessage", testChannelID, testMessageID, tt.expectedMessage).Return(nil).Once()
+				mockDiscordService.On("UpdateMessage", testChannelId, testMessageId, tt.expectedMessage).Return(nil).Once()
 			}
 
 			// Create Bot instance
 			bot := &Bot{
 				discordService: mockDiscordService,
 				githubService:  mockGithubService,
-				channelID:      testChannelID,
-				messageID:      testMessageID,
+				channelID:      testChannelId,
+				messageID:      testMessageId,
+				githubOrg:      testGithubOrg,
 			}
 
 			// Call Process method
@@ -109,4 +142,20 @@ func TestBotProcess(t *testing.T) {
 			}
 		})
 	}
+}
+
+func mustParseURL(s string) githubv4.URI {
+	u, err := url.Parse(s)
+	if err != nil {
+		panic("mustParseURL: parsing URL failed: " + err.Error())
+	}
+	return githubv4.URI{URL: u}
+}
+
+func mustParseTime(s string) githubv4.DateTime {
+	t, err := time.Parse(constants.StandardTimeLayout, s)
+	if err != nil {
+		panic("mustParseTime: parsing time failed: " + err.Error())
+	}
+	return githubv4.DateTime{Time: t}
 }
