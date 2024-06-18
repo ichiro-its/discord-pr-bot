@@ -1,5 +1,7 @@
 package service
 
+import "github.com/ichiro-its/discord-pr-bot/entity"
+
 type GithubService interface {
-	GetOpenPullRequestUrls() (pullRequestUrls []string, err error)
+	GetOpenPullRequests(org string) ([]entity.PullRequest, error)
 }

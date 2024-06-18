@@ -10,6 +10,9 @@ type Config struct {
 	DiscordBotToken  string
 	DiscordChannelID string
 	DiscordMessageID string
+
+	GithubToken string
+	GithubOrg   string
 }
 
 func LoadConfig() *Config {
@@ -17,5 +20,7 @@ func LoadConfig() *Config {
 		DiscordBotToken:  os.Getenv(constants.DiscordBotTokenEnv),
 		DiscordChannelID: os.Getenv(constants.DiscordChannelIdEnv),
 		DiscordMessageID: os.Getenv(constants.DiscordMessageIdEnv),
+		GithubToken:      os.Getenv(constants.GithubTokenEnv),
+		GithubOrg:        os.Getenv(constants.GithubOrgEnv),
 	}
 }
