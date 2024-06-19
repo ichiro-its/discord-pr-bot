@@ -11,7 +11,7 @@ env:
   DISCORD_BOT_TOKEN: ${{ secrets.DISCORD_BOT_TOKEN }}
   DISCORD_CHANNEL_ID: ${{ vars.DISCORD_CHANNEL_ID }}
   DISCORD_MESSAGE_ID: ${{ vars.DISCORD_MESSAGE_ID }}
-  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+  GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
   GITHUB_ORG: ${{ vars.GH_ORGANIZATION }}
   TZ: Asia/Jakarta
 
