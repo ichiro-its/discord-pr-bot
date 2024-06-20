@@ -8,6 +8,7 @@ import (
 
 type Config struct {
 	DiscordBotToken  string
+	DiscordBotId     string
 	DiscordChannelID string
 	DiscordMessageID string
 
@@ -18,6 +19,7 @@ type Config struct {
 func LoadConfig() *Config {
 	return &Config{
 		DiscordBotToken:  os.Getenv(constants.DiscordBotTokenEnv),
+		DiscordBotId:     os.Getenv(constants.DiscordBotIdEnv),
 		DiscordChannelID: os.Getenv(constants.DiscordChannelIdEnv),
 		DiscordMessageID: os.Getenv(constants.DiscordMessageIdEnv),
 		GithubToken:      os.Getenv(constants.GithubTokenEnv),

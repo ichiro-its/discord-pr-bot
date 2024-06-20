@@ -1,40 +1,36 @@
 package handler
 
 import (
+	"errors"
 	"net/url"
 	"testing"
-	"time"
 
+	"github.com/bwmarrin/discordgo"
 	"github.com/ichiro-its/discord-pr-bot/config"
-	"github.com/ichiro-its/discord-pr-bot/constants"
 	"github.com/ichiro-its/discord-pr-bot/entity"
 	"github.com/ichiro-its/discord-pr-bot/mocks/service"
 	"github.com/shurcooL/githubv4"
 	"github.com/stretchr/testify/assert"
 )
 
-type TableTest struct {
-	name             string
-	mockGithubResult []entity.PullRequest // Simulated result from mock GithubService
-	expectedMessage  string               // Expected message sent to DiscordService
-	mockGithubError  error                // Simulated error from mock GithubService
-	mockDiscordError error                // Simulated error from mock DiscordService
-
-}
-
 const (
 	testDiscordBotToken = "test-discord-bot-token"
+	testDiscordBotId    = "test-discord-bot-id"
 	testChannelId       = "test-channel-id"
 	testMessageId       = "test-message-id"
 
 	testGithubToken = "test-github-token"
-	testGithubOrg   = "test-org"
+	testGithubOrg   = "test-github-org"
+
+	testRepo     = "test-repo"
+	boldTestRepo = "**" + testRepo + "**"
 )
 
 func TestNewBot(t *testing.T) {
 	// Create a new Bot instance
 	bot, _ := NewBot(&config.Config{
 		DiscordBotToken:  testDiscordBotToken,
+		DiscordBotId:     testDiscordBotId,
 		DiscordChannelID: testChannelId,
 		DiscordMessageID: testMessageId,
 		GithubToken:      testGithubToken,
@@ -51,95 +47,216 @@ func TestNewBot(t *testing.T) {
 }
 
 func TestBotProcess(t *testing.T) {
-	tests := []*TableTest{
-		{
-			name:             "No open pull requests",
-			mockGithubResult: []entity.PullRequest{},
-			expectedMessage:  "Congratulations! No open pull requests.\n\n_Result updated at: " + time.Now().Format(constants.StandardTimeLayout) + "WIB_",
-			mockGithubError:  nil,
-			mockDiscordError: nil,
-		},
-		{
-			name: "Open pull requests",
-			mockGithubResult: []entity.PullRequest{
-				{
-					Title: "Fix issue #123",
-					Url:   mustParseURL("https://github.com/org/repo/pull/123"),
-					Author: entity.Author{
-						Login: "mockuser",
-					},
-					Repository: entity.Repository{
-						Name: "repo",
-					},
-					CreatedAt: mustParseTime("2021-01-01 00:00:01"),
-				},
-				{
-					Title: "Add feature X",
-					Url:   mustParseURL("https://github.com/org/repo/pull/124"),
-					Author: entity.Author{
-						Login: "mockuser2",
-					},
-					Repository: entity.Repository{
-						Name: "repo2",
-					},
-					CreatedAt: mustParseTime("2021-01-01 00:00:00"),
-				},
-			},
-			expectedMessage:  "Open pull requests:\n- **repo**\n - [Fix issue #123](<https://github.com/org/repo/pull/123>) (mockuser)\n- **repo2**\n - [Add feature X](<https://github.com/org/repo/pull/124>) (mockuser2)\n\n_Result updated at: " + time.Now().Format(constants.StandardTimeLayout) + "WIB_",
-			mockGithubError:  nil,
-			mockDiscordError: nil,
-		},
-		{
-			name:             "Error retrieving pull requests",
-			mockGithubResult: nil,
-			expectedMessage:  "",
-			mockGithubError:  assert.AnError,
-			mockDiscordError: nil,
-		},
-		{
-			name:             "Error updating message",
-			mockGithubResult: []entity.PullRequest{},
-			expectedMessage:  "Congratulations! No open pull requests.\n\n_Result updated at: " + time.Now().Format(constants.StandardTimeLayout) + "WIB_",
-			mockGithubError:  nil,
-			mockDiscordError: assert.AnError,
-		},
+	type fields struct {
+		discordService *service.DiscordServiceMock
+		githubService  *service.GithubServiceMock
+		botId          string
+		channelID      string
+		messageID      string
+		githubOrg      string
 	}
-
-	// Iterate over test cases
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			// Mock GithubService
-			mockGithubService := &service.GithubServiceMock{}
-			if tt.mockGithubError != nil {
-				mockGithubService.On("GetOpenPullRequests", testGithubOrg).Return(tt.mockGithubResult, tt.mockGithubError).Once()
-			} else {
-				mockGithubService.On("GetOpenPullRequests", testGithubOrg).Return(tt.mockGithubResult, tt.mockGithubError)
-			}
-
-			// Mock DiscordService
-			mockDiscordService := &service.DiscordServiceMock{}
-			if tt.mockDiscordError != nil {
-				mockDiscordService.On("UpdateMessage", testChannelId, testMessageId, tt.expectedMessage).Return(tt.mockDiscordError).Once()
-			} else {
-				mockDiscordService.On("UpdateMessage", testChannelId, testMessageId, tt.expectedMessage).Return(nil).Once()
-			}
-
-			// Create Bot instance
-			bot := &Bot{
-				discordService: mockDiscordService,
-				githubService:  mockGithubService,
+	type args struct {
+		repo string
+	}
+	tests := []struct {
+		name        string
+		fields      fields
+		args        args
+		setupMocks  func(fields fields)
+		expectedErr error
+	}{
+		{
+			name: "No pull requests with no existing message",
+			fields: fields{
+				discordService: new(service.DiscordServiceMock),
+				githubService:  new(service.GithubServiceMock),
+				botId:          testDiscordBotId,
 				channelID:      testChannelId,
 				messageID:      testMessageId,
 				githubOrg:      testGithubOrg,
+			},
+			args: args{
+				repo: testRepo,
+			},
+			setupMocks: func(f fields) {
+				f.githubService.On("GetOpenPullRequests", testGithubOrg, testRepo).
+					Return([]*entity.PullRequest{}, nil)
+
+				f.discordService.On("GetMessages", testChannelId).
+					Return([]*discordgo.Message{}, nil)
+			},
+			expectedErr: nil,
+		},
+		{
+			name: "No pull requests with existing message",
+			fields: fields{
+				discordService: new(service.DiscordServiceMock),
+				githubService:  new(service.GithubServiceMock),
+				botId:          testDiscordBotId,
+				channelID:      testChannelId,
+				messageID:      testMessageId,
+				githubOrg:      testGithubOrg,
+			},
+			args: args{
+				repo: testRepo,
+			},
+			setupMocks: func(f fields) {
+				f.githubService.On("GetOpenPullRequests", testGithubOrg, testRepo).
+					Return([]*entity.PullRequest{}, nil)
+
+				f.discordService.On("GetMessages", testChannelId).
+					Return([]*discordgo.Message{
+						{
+							ID:      "user-message-id",
+							Content: boldTestRepo,
+							Author: &discordgo.User{
+								ID: "test-user-id",
+							},
+						},
+						{
+							ID:      testMessageId,
+							Content: boldTestRepo,
+							Author: &discordgo.User{
+								ID: testDiscordBotId,
+							},
+						},
+					}, nil)
+
+				f.discordService.On("DeleteMessage", testChannelId, testMessageId).
+					Return(nil)
+			},
+			expectedErr: nil,
+		},
+		{
+			name: "Multiple pull requests with no existing message",
+			fields: fields{
+				discordService: new(service.DiscordServiceMock),
+				githubService:  new(service.GithubServiceMock),
+				botId:          testDiscordBotId,
+				channelID:      testChannelId,
+				messageID:      testMessageId,
+				githubOrg:      testGithubOrg,
+			},
+			args: args{
+				repo: testRepo,
+			},
+			setupMocks: func(f fields) {
+				pullRequests := []*entity.PullRequest{
+					{
+						Title:      "PR1",
+						Url:        mustParseURL("https://github.com/org/repo/pull/1"),
+						Author:     entity.Author{Login: "user1"},
+						Repository: entity.Repository{Name: testRepo},
+					},
+					{
+						Title:      "PR2",
+						Url:        mustParseURL("https://github.com/org/repo/pull/2"),
+						Author:     entity.Author{Login: "user2"},
+						Repository: entity.Repository{Name: testRepo},
+					},
+				}
+
+				f.githubService.On("GetOpenPullRequests", testGithubOrg, testRepo).
+					Return(pullRequests, nil)
+
+				f.discordService.On("GetMessages", testChannelId).
+					Return([]*discordgo.Message{}, nil)
+
+				f.discordService.On("SendMessage", testChannelId, "**test-repo**\n- [PR1](<https://github.com/org/repo/pull/1>) (user1)\n- [PR2](<https://github.com/org/repo/pull/2>) (user2)\n").
+					Return(nil)
+			},
+			expectedErr: nil,
+		},
+		{
+			name: "Multiple pull requests with existing message",
+			fields: fields{
+				discordService: new(service.DiscordServiceMock),
+				githubService:  new(service.GithubServiceMock),
+				botId:          testDiscordBotId,
+				channelID:      testChannelId,
+				messageID:      testMessageId,
+				githubOrg:      testGithubOrg,
+			},
+			args: args{
+				repo: testRepo,
+			},
+			setupMocks: func(f fields) {
+				pullRequests := []*entity.PullRequest{
+					{
+						Title:      "PR1",
+						Url:        mustParseURL("https://github.com/org/repo/pull/1"),
+						Author:     entity.Author{Login: "user1"},
+						Repository: entity.Repository{Name: testRepo},
+					},
+					{
+						Title:      "PR2",
+						Url:        mustParseURL("https://github.com/org/repo/pull/2"),
+						Author:     entity.Author{Login: "user2"},
+						Repository: entity.Repository{Name: testRepo},
+					},
+				}
+
+				f.githubService.On("GetOpenPullRequests", testGithubOrg, testRepo).
+					Return(pullRequests, nil)
+
+				f.discordService.On("GetMessages", testChannelId).
+					Return([]*discordgo.Message{
+						{
+							ID:      testMessageId,
+							Content: boldTestRepo,
+							Author: &discordgo.User{
+								ID: testDiscordBotId,
+							},
+						},
+					}, nil)
+
+				f.discordService.On("UpdateMessage", testChannelId, testMessageId, "**test-repo**\n- [PR1](<https://github.com/org/repo/pull/1>) (user1)\n- [PR2](<https://github.com/org/repo/pull/2>) (user2)\n").
+					Return(nil)
+			},
+			expectedErr: nil,
+		},
+		{
+			name: "GitHub service error",
+			fields: fields{
+				discordService: new(service.DiscordServiceMock),
+				githubService:  new(service.GithubServiceMock),
+				botId:          testDiscordBotId,
+				channelID:      testChannelId,
+				messageID:      testMessageId,
+				githubOrg:      testGithubOrg,
+			},
+			args: args{
+				repo: testRepo,
+			},
+			setupMocks: func(f fields) {
+				f.githubService.On("GetOpenPullRequests", testGithubOrg, testRepo).
+					Return(nil, errors.New("github error"))
+			},
+			expectedErr: errors.New("failed to get open pull requests: github error"),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			bot := &Bot{
+				discordService: tt.fields.discordService,
+				githubService:  tt.fields.githubService,
+				botId:          tt.fields.botId,
+				channelID:      tt.fields.channelID,
+				messageID:      tt.fields.messageID,
+				githubOrg:      tt.fields.githubOrg,
+			}
+			tt.setupMocks(tt.fields)
+
+			err := bot.Process(tt.args.repo)
+			if tt.expectedErr != nil {
+				assert.EqualError(t, err, tt.expectedErr.Error())
+			} else {
+				assert.NoError(t, err)
 			}
 
-			// Call Process method
-			bot.Process()
-
-			mockGithubService.AssertExpectations(t)
-			if tt.mockGithubError == nil {
-				mockDiscordService.AssertExpectations(t)
-			}
+			tt.fields.discordService.AssertExpectations(t)
+			tt.fields.githubService.AssertExpectations(t)
 		})
 	}
 }
@@ -150,12 +267,4 @@ func mustParseURL(s string) githubv4.URI {
 		panic("mustParseURL: parsing URL failed: " + err.Error())
 	}
 	return githubv4.URI{URL: u}
-}
-
-func mustParseTime(s string) githubv4.DateTime {
-	t, err := time.Parse(constants.StandardTimeLayout, s)
-	if err != nil {
-		panic("mustParseTime: parsing time failed: " + err.Error())
-	}
-	return githubv4.DateTime{Time: t}
 }

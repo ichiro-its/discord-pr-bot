@@ -3,7 +3,6 @@ package impl
 import (
 	"context"
 	"fmt"
-	"sort"
 
 	"github.com/ichiro-its/discord-pr-bot/entity"
 	"github.com/ichiro-its/discord-pr-bot/service"
@@ -16,39 +15,23 @@ type GithubServiceImpl struct {
 }
 
 type searchQuery struct {
-	Search struct {
-		Edges []struct {
-			Node struct {
-				PullRequest entity.PullRequest `graphql:"... on PullRequest"`
-			}
-		}
-		PageInfo struct {
-			EndCursor   githubv4.String
-			HasNextPage githubv4.Boolean
-		}
-	} `graphql:"search(query: $query, type: ISSUE, last: 100)"`
+	Repository struct {
+		PullRequests struct {
+			Nodes []*entity.PullRequest
+		} `graphql:"pullRequests(states: OPEN, last: 100)"`
+	} `graphql:"repository(owner: $owner, name: $name)"`
 }
 
-func (g *GithubServiceImpl) GetOpenPullRequests(org string) ([]entity.PullRequest, error) {
+func (g *GithubServiceImpl) GetOpenPullRequests(org string, repo string) ([]*entity.PullRequest, error) {
 	var query searchQuery
 	err := g.client.Query(context.Background(), &query, map[string]interface{}{
-		"query": githubv4.String(fmt.Sprintf("org:%s is:pr is:open", org)),
+		"owner": githubv4.String(org),
+		"name":  githubv4.String(repo),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed github query: %+v", err)
 	}
-
-	var pullRequests []entity.PullRequest
-	for _, edge := range query.Search.Edges {
-		pr := edge.Node.PullRequest
-		if pr.Mergeable == githubv4.MergeableStateMergeable {
-			pullRequests = append(pullRequests, edge.Node.PullRequest)
-		}
-	}
-	sort.Slice(pullRequests, func(i, j int) bool {
-		return pullRequests[i].CreatedAt.Time.Before(pullRequests[j].CreatedAt.Time)
-	})
-	return pullRequests, nil
+	return query.Repository.PullRequests.Nodes, nil
 }
 
 func NewGithubService(token string) (service.GithubService, error) {

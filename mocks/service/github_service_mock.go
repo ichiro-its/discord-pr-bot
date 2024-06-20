@@ -20,29 +20,29 @@ func (_m *GithubServiceMock) EXPECT() *GithubServiceMock_Expecter {
 	return &GithubServiceMock_Expecter{mock: &_m.Mock}
 }
 
-// GetOpenPullRequests provides a mock function with given fields: org
-func (_m *GithubServiceMock) GetOpenPullRequests(org string) ([]entity.PullRequest, error) {
-	ret := _m.Called(org)
+// GetOpenPullRequests provides a mock function with given fields: org, repo
+func (_m *GithubServiceMock) GetOpenPullRequests(org string, repo string) ([]*entity.PullRequest, error) {
+	ret := _m.Called(org, repo)
 
 	if len(ret) == 0 {
 		panic("no return value specified for GetOpenPullRequests")
 	}
 
-	var r0 []entity.PullRequest
+	var r0 []*entity.PullRequest
 	var r1 error
-	if rf, ok := ret.Get(0).(func(string) ([]entity.PullRequest, error)); ok {
-		return rf(org)
+	if rf, ok := ret.Get(0).(func(string, string) ([]*entity.PullRequest, error)); ok {
+		return rf(org, repo)
 	}
-	if rf, ok := ret.Get(0).(func(string) []entity.PullRequest); ok {
-		r0 = rf(org)
+	if rf, ok := ret.Get(0).(func(string, string) []*entity.PullRequest); ok {
+		r0 = rf(org, repo)
 	} else {
 		if ret.Get(0) != nil {
-			r0 = ret.Get(0).([]entity.PullRequest)
+			r0 = ret.Get(0).([]*entity.PullRequest)
 		}
 	}
 
-	if rf, ok := ret.Get(1).(func(string) error); ok {
-		r1 = rf(org)
+	if rf, ok := ret.Get(1).(func(string, string) error); ok {
+		r1 = rf(org, repo)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -57,23 +57,24 @@ type GithubServiceMock_GetOpenPullRequests_Call struct {
 
 // GetOpenPullRequests is a helper method to define mock.On call
 //   - org string
-func (_e *GithubServiceMock_Expecter) GetOpenPullRequests(org interface{}) *GithubServiceMock_GetOpenPullRequests_Call {
-	return &GithubServiceMock_GetOpenPullRequests_Call{Call: _e.mock.On("GetOpenPullRequests", org)}
+//   - repo string
+func (_e *GithubServiceMock_Expecter) GetOpenPullRequests(org interface{}, repo interface{}) *GithubServiceMock_GetOpenPullRequests_Call {
+	return &GithubServiceMock_GetOpenPullRequests_Call{Call: _e.mock.On("GetOpenPullRequests", org, repo)}
 }
 
-func (_c *GithubServiceMock_GetOpenPullRequests_Call) Run(run func(org string)) *GithubServiceMock_GetOpenPullRequests_Call {
+func (_c *GithubServiceMock_GetOpenPullRequests_Call) Run(run func(org string, repo string)) *GithubServiceMock_GetOpenPullRequests_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(string))
+		run(args[0].(string), args[1].(string))
 	})
 	return _c
 }
 
-func (_c *GithubServiceMock_GetOpenPullRequests_Call) Return(_a0 []entity.PullRequest, _a1 error) *GithubServiceMock_GetOpenPullRequests_Call {
+func (_c *GithubServiceMock_GetOpenPullRequests_Call) Return(_a0 []*entity.PullRequest, _a1 error) *GithubServiceMock_GetOpenPullRequests_Call {
 	_c.Call.Return(_a0, _a1)
 	return _c
 }
 
-func (_c *GithubServiceMock_GetOpenPullRequests_Call) RunAndReturn(run func(string) ([]entity.PullRequest, error)) *GithubServiceMock_GetOpenPullRequests_Call {
+func (_c *GithubServiceMock_GetOpenPullRequests_Call) RunAndReturn(run func(string, string) ([]*entity.PullRequest, error)) *GithubServiceMock_GetOpenPullRequests_Call {
 	_c.Call.Return(run)
 	return _c
 }
