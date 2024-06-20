@@ -2,8 +2,9 @@ package handler
 
 import (
 	"fmt"
-	"time"
+	"strings"
 
+	"github.com/bwmarrin/discordgo"
 	"github.com/ichiro-its/discord-pr-bot/config"
 	"github.com/ichiro-its/discord-pr-bot/constants"
 	"github.com/ichiro-its/discord-pr-bot/entity"
@@ -14,6 +15,7 @@ import (
 type Bot struct {
 	discordService service.DiscordService
 	githubService  service.GithubService
+	botId          string
 	channelID      string
 	messageID      string
 	githubOrg      string
@@ -33,50 +35,85 @@ func NewBot(config *config.Config) (*Bot, error) {
 	return &Bot{
 		discordService: discordService,
 		githubService:  githubService,
+		botId:          config.DiscordBotId,
 		channelID:      config.DiscordChannelID,
 		messageID:      config.DiscordMessageID,
 		githubOrg:      config.GithubOrg,
 	}, nil
 }
 
-func (b *Bot) Process() error {
+func (b *Bot) Process(repo string) error {
 	// Get open pull requests
-	pullRequests, err := b.githubService.GetOpenPullRequests(b.githubOrg)
+	pullRequests, err := b.githubService.GetOpenPullRequests(b.githubOrg, repo)
 	if err != nil {
 		return fmt.Errorf("failed to get open pull requests: %+v", err)
 	}
-	// TODO: support listing all open pull requests
-	pullRequests = pullRequests[max(0, len(pullRequests)-10):]
-
-	var message string
-	if len(pullRequests) == 0 {
-		message = "Congratulations! No open pull requests.\n"
-	} else {
-		message = "Open pull requests:\n" + constructGroupedPrMessage(pullRequests)
-	}
-	message += "\n_Result updated at: " + time.Now().Format(constants.StandardTimeLayout) + "WIB_"
-
-	// Update message in Discord
-	err = b.discordService.UpdateMessage(b.channelID, b.messageID, message)
+	messages, err := b.discordService.GetMessages(b.channelID)
 	if err != nil {
-		return fmt.Errorf("failed to update message: %+v", err)
+		return fmt.Errorf("failed to get messages: %+v", err)
 	}
 
+	messageId := b.getRepoMessageMessageId(messages, repo)
+	if len(pullRequests) == 0 {
+		return b.deleteMessage(messageId)
+	}
+
+	content := b.constructPrMessageContent(pullRequests)
+	if messageId != "" {
+		return b.updateMessage(messageId, content)
+	}
+
+	return b.sendMessage(content)
+}
+
+func (b *Bot) constructPrMessageContent(pullRequests []*entity.PullRequest) string {
+	message := fmt.Sprintf("**%s**\n", pullRequests[0].Repository.Name)
+	for _, pr := range pullRequests {
+		prMessage := fmt.Sprintf("- [%s](<%s>) (%s)\n", pr.Title, pr.Url.URL, pr.Author.Login)
+		if len(message)+len(prMessage) > constants.DiscordMessageLengthLimit {
+			break
+		}
+		message += prMessage
+	}
+	return message
+}
+
+func (b *Bot) getRepoMessageMessageId(messages []*discordgo.Message, repo string) string {
+	for _, message := range messages {
+		if message.Author.ID != b.botId {
+			continue
+		}
+		s := strings.Split(message.Content, "**")
+		if s[1] == repo {
+			return message.ID
+		}
+	}
+	return ""
+}
+
+func (b *Bot) deleteMessage(messageId string) error {
+	if messageId == "" {
+		return nil
+	}
+	err := b.discordService.DeleteMessage(b.channelID, messageId)
+	if err != nil {
+		return fmt.Errorf("failed to delete message, id: %s: %+v", messageId, err)
+	}
 	return nil
 }
 
-func constructGroupedPrMessage(pullRequests []entity.PullRequest) string {
-	repoMap := make(map[string][]entity.PullRequest)
-	for _, pr := range pullRequests {
-		repoMap[string(pr.Repository.Name)] = append(repoMap[string(pr.Repository.Name)], pr)
+func (b *Bot) sendMessage(content string) error {
+	err := b.discordService.SendMessage(b.channelID, content)
+	if err != nil {
+		return fmt.Errorf("failed to send message: %+v", err)
 	}
+	return nil
+}
 
-	message := ""
-	for repo, prs := range repoMap {
-		message += fmt.Sprintf("- **%s**\n", repo)
-		for _, pr := range prs {
-			message += fmt.Sprintf(" - [%s](<%s>) (%s)\n", pr.Title, pr.Url.URL, pr.Author.Login)
-		}
+func (b *Bot) updateMessage(messageId string, content string) error {
+	err := b.discordService.UpdateMessage(b.channelID, messageId, content)
+	if err != nil {
+		return fmt.Errorf("failed to update message, id: %s: %+v", messageId, err)
 	}
-	return message
+	return nil
 }
