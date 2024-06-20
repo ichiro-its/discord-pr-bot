@@ -1,14 +1,12 @@
-name: Cron
+name: Build and Run
 
 on:
-  schedule:
-    - cron: 0 * * * *
   repository_dispatch:
     types: [pull_request]
-  workflow_dispatch:
 
 env:
   DISCORD_BOT_TOKEN: ${{ secrets.DISCORD_BOT_TOKEN }}
+  DISCORD_BOT_ID: ${{ vars.DISCORD_BOT_ID }}
   DISCORD_CHANNEL_ID: ${{ vars.DISCORD_CHANNEL_ID }}
   DISCORD_MESSAGE_ID: ${{ vars.DISCORD_MESSAGE_ID }}
   GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
@@ -30,4 +28,4 @@ jobs:
         run: go build -o bin/main cmd/main.go
 
       - name: Run
-        run: ./bin/main
+        run: ./bin/main ${{ github.event.client_payload.repo }}
