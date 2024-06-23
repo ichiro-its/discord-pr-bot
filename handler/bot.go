@@ -10,6 +10,7 @@ import (
 	"github.com/ichiro-its/discord-pr-bot/entity"
 	"github.com/ichiro-its/discord-pr-bot/service"
 	"github.com/ichiro-its/discord-pr-bot/service/impl"
+	"golang.org/x/sync/errgroup"
 )
 
 type Bot struct {
@@ -42,23 +43,45 @@ func NewBot(config *config.Config) (*Bot, error) {
 	}, nil
 }
 
-func (b *Bot) Process(repo string) error {
-	// Get open pull requests
-	pullRequests, err := b.githubService.GetOpenPullRequests(b.githubOrg, repo)
+func (b *Bot) Process(botParam *entity.BotParam) error {
+	var errGroup errgroup.Group
+	var pullRequests []*entity.PullRequest
+	errGroup.Go(func() error {
+		var err error
+		pullRequests, err = b.githubService.GetOpenPullRequests(b.githubOrg, botParam.Repository)
+		return err
+	})
+
+	var messages []*discordgo.Message
+	errGroup.Go(func() error {
+		var err error
+		messages, err = b.discordService.GetMessages(b.channelID)
+		return err
+	})
+	err := errGroup.Wait()
 	if err != nil {
-		return fmt.Errorf("failed to get open pull requests: %+v", err)
-	}
-	messages, err := b.discordService.GetMessages(b.channelID)
-	if err != nil {
-		return fmt.Errorf("failed to get messages: %+v", err)
+		return fmt.Errorf("failed to get pull requests or messages: %+v", err)
 	}
 
-	messageId := b.getRepoMessageMessageId(messages, repo)
+	messageId := b.getRepoMessageMessageId(messages, botParam.Repository)
 	if len(pullRequests) == 0 {
 		return b.deleteMessage(messageId)
 	}
 
 	content := b.constructPrMessageContent(pullRequests)
+	if botParam.PrType == constants.GithubPrTypeOpened {
+		errGroup.Go(func() error {
+			if messageId == "" {
+				return nil
+			}
+			return b.deleteMessage(messageId)
+		})
+		errGroup.Go(func() error {
+			return b.sendMessage(content)
+		})
+		return errGroup.Wait()
+	}
+
 	if messageId != "" {
 		return b.updateMessage(messageId, content)
 	}
@@ -84,7 +107,7 @@ func (b *Bot) getRepoMessageMessageId(messages []*discordgo.Message, repo string
 			continue
 		}
 		s := strings.Split(message.Content, "**")
-		if s[1] == repo {
+		if len(s) > 1 && s[1] == repo {
 			return message.ID
 		}
 	}

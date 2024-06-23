@@ -12,4 +12,6 @@ const (
 
 	GithubTokenEnv = "GITHUB_TOKEN"
 	GithubOrgEnv   = "GITHUB_ORG"
+
+	GithubPrTypeOpened = "opened"
 )
