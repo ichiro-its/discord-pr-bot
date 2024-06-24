@@ -7,6 +7,7 @@ import (
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/ichiro-its/discord-pr-bot/config"
+	"github.com/ichiro-its/discord-pr-bot/constants"
 	"github.com/ichiro-its/discord-pr-bot/entity"
 	"github.com/ichiro-its/discord-pr-bot/mocks/service"
 	"github.com/shurcooL/githubv4"
@@ -24,6 +25,7 @@ const (
 
 	testRepo     = "test-repo"
 	boldTestRepo = "**" + testRepo + "**"
+	prTypeClosed = "closed"
 )
 
 func TestNewBot(t *testing.T) {
@@ -56,7 +58,7 @@ func TestBotProcess(t *testing.T) {
 		githubOrg      string
 	}
 	type args struct {
-		repo string
+		botParam *entity.BotParam
 	}
 	tests := []struct {
 		name        string
@@ -76,7 +78,10 @@ func TestBotProcess(t *testing.T) {
 				githubOrg:      testGithubOrg,
 			},
 			args: args{
-				repo: testRepo,
+				botParam: &entity.BotParam{
+					Repository: testRepo,
+					PrType:     prTypeClosed,
+				},
 			},
 			setupMocks: func(f fields) {
 				f.githubService.On("GetOpenPullRequests", testGithubOrg, testRepo).
@@ -98,7 +103,10 @@ func TestBotProcess(t *testing.T) {
 				githubOrg:      testGithubOrg,
 			},
 			args: args{
-				repo: testRepo,
+				botParam: &entity.BotParam{
+					Repository: testRepo,
+					PrType:     prTypeClosed,
+				},
 			},
 			setupMocks: func(f fields) {
 				f.githubService.On("GetOpenPullRequests", testGithubOrg, testRepo).
@@ -138,7 +146,10 @@ func TestBotProcess(t *testing.T) {
 				githubOrg:      testGithubOrg,
 			},
 			args: args{
-				repo: testRepo,
+				botParam: &entity.BotParam{
+					Repository: testRepo,
+					PrType:     "opened",
+				},
 			},
 			setupMocks: func(f fields) {
 				pullRequests := []*entity.PullRequest{
@@ -178,7 +189,10 @@ func TestBotProcess(t *testing.T) {
 				githubOrg:      testGithubOrg,
 			},
 			args: args{
-				repo: testRepo,
+				botParam: &entity.BotParam{
+					Repository: testRepo,
+					PrType:     constants.GithubPrTypeOpened,
+				},
 			},
 			setupMocks: func(f fields) {
 				pullRequests := []*entity.PullRequest{
@@ -210,7 +224,10 @@ func TestBotProcess(t *testing.T) {
 						},
 					}, nil)
 
-				f.discordService.On("UpdateMessage", testChannelId, testMessageId, "**test-repo**\n- [PR1](<https://github.com/org/repo/pull/1>) (user1)\n- [PR2](<https://github.com/org/repo/pull/2>) (user2)\n").
+				f.discordService.On("DeleteMessage", testChannelId, testMessageId).
+					Return(nil)
+
+				f.discordService.On("SendMessage", testChannelId, "**test-repo**\n- [PR1](<https://github.com/org/repo/pull/1>) (user1)\n- [PR2](<https://github.com/org/repo/pull/2>) (user2)\n").
 					Return(nil)
 			},
 			expectedErr: nil,
@@ -226,13 +243,19 @@ func TestBotProcess(t *testing.T) {
 				githubOrg:      testGithubOrg,
 			},
 			args: args{
-				repo: testRepo,
+				botParam: &entity.BotParam{
+					Repository: testRepo,
+					PrType:     constants.GithubPrTypeOpened,
+				},
 			},
 			setupMocks: func(f fields) {
 				f.githubService.On("GetOpenPullRequests", testGithubOrg, testRepo).
 					Return(nil, errors.New("github error"))
+
+				f.discordService.On("GetMessages", testChannelId).
+					Return([]*discordgo.Message{}, nil)
 			},
-			expectedErr: errors.New("failed to get open pull requests: github error"),
+			expectedErr: errors.New("failed to get pull requests or messages: github error"),
 		},
 	}
 
@@ -248,7 +271,7 @@ func TestBotProcess(t *testing.T) {
 			}
 			tt.setupMocks(tt.fields)
 
-			err := bot.Process(tt.args.repo)
+			err := bot.Process(tt.args.botParam)
 			if tt.expectedErr != nil {
 				assert.EqualError(t, err, tt.expectedErr.Error())
 			} else {
